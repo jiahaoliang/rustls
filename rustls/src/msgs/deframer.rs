@@ -315,7 +315,7 @@ impl MessageDeframer {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default)]
 pub struct DeframerVecBuffer {
     /// Buffer of data read from the socket, in the process of being parsed into messages.
     ///
@@ -324,6 +324,16 @@ pub struct DeframerVecBuffer {
 
     /// What size prefix of `buf` is used.
     used: usize,
+}
+
+// Never expose the underlying TLS record buffer through Debug.
+impl core::fmt::Debug for DeframerVecBuffer {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DeframerVecBuffer")
+            .field("buf_len", &self.buf.len())
+            .field("used", &self.used)
+            .finish_non_exhaustive()
+    }
 }
 
 impl DeframerVecBuffer {
@@ -439,6 +449,15 @@ pub struct DeframerSliceBuffer<'a> {
     buf: &'a mut [u8],
     // number of bytes to discard from the front of `buf` at a later time
     discard: usize,
+}
+
+impl core::fmt::Debug for DeframerSliceBuffer<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DeframerSliceBuffer")
+            .field("buf_len", &self.buf.len())
+            .field("discard", &self.discard)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a> DeframerSliceBuffer<'a> {
@@ -920,4 +939,34 @@ mod tests {
     const INVALID_VERSION_MESSAGE: &[u8] =
         include_bytes!("../testdata/deframer-invalid-version.bin");
     const INVALID_LENGTH_MESSAGE: &[u8] = include_bytes!("../testdata/deframer-invalid-length.bin");
+}
+
+
+#[cfg(test)]
+mod debug_redaction_tests {
+    use alloc::format;
+    use alloc::vec;
+    use super::*;
+
+    #[test]
+    fn deframer_buffers_do_not_print_tls_data() {
+        let marker = b"unique-tls-record-data";
+        let mut buffer = DeframerVecBuffer {
+            buf: marker.to_vec(),
+            used: marker.len(),
+        };
+        let vec_debug = format!("{buffer:?}");
+        assert!(vec_debug.contains("buf_len: 22"));
+        assert!(!vec_debug.contains("unique-tls-record-data"));
+        assert!(!vec_debug.contains("117, 110, 105, 113, 117, 101"));
+
+        let slice_debug = format!("{:?}", buffer.borrow());
+        assert!(slice_debug.contains("DeframerSliceBuffer"));
+        assert!(!slice_debug.contains("unique-tls-record-data"));
+        assert!(!slice_debug.contains("117, 110, 105, 113, 117, 101"));
+
+        // Ensure a vector with arbitrary bytes never emits the contents.
+        let raw = DeframerVecBuffer { buf: vec![0xA5; 4], used: 4 };
+        assert!(!format!("{raw:?}").contains("165, 165"));
+    }
 }
