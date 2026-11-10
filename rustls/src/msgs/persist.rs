@@ -14,6 +14,7 @@ use zeroize::Zeroizing;
 
 use alloc::vec::Vec;
 use core::cmp;
+use core::fmt;
 #[cfg(feature = "tls12")]
 use core::mem;
 
@@ -201,7 +202,7 @@ impl core::ops::Deref for Tls12ClientSessionValue {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ClientSessionCommon {
     ticket: PayloadU16,
     secret: Zeroizing<PayloadU8>,
@@ -237,6 +238,19 @@ impl ClientSessionCommon {
 
     pub(crate) fn ticket(&self) -> &[u8] {
         self.ticket.0.as_ref()
+    }
+}
+
+// Do not expose the TLS 1.2 master secret or TLS 1.3 resumption PSK in logs.
+// The derived Debug implementations of both client session types use this.
+impl fmt::Debug for ClientSessionCommon {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClientSessionCommon")
+            .field("ticket", &self.ticket)
+            .field("epoch", &self.epoch)
+            .field("lifetime_secs", &self.lifetime_secs)
+            .field("server_cert_chain", &self.server_cert_chain)
+            .finish_non_exhaustive()
     }
 }
 
@@ -445,5 +459,34 @@ mod tests {
         let mut rd = Reader::init(&bytes);
         let ssv = ServerSessionValue::read(&mut rd).unwrap();
         assert_eq!(ssv.get_encoding(), bytes);
+    }
+}
+
+
+#[cfg(test)]
+mod debug_redaction_tests {
+    use alloc::format;
+    use alloc::vec;
+    use core::time::Duration;
+
+    use super::*;
+
+    #[test]
+    fn client_session_debug_does_not_expose_secret() {
+        let common = ClientSessionCommon::new(
+            vec![1, 2, 3],
+            b"unique-session-secret",
+            CertificateChain(Vec::new()),
+            UnixTime::since_unix_epoch(Duration::from_secs(1)),
+            60,
+        );
+
+        // Both Tls12ClientSessionValue and Tls13ClientSessionValue derive Debug
+        // and format this shared value, so neither can print its secret.
+        let debug = format!("{common:?}");
+        assert!(debug.contains("ClientSessionCommon"));
+        assert!(debug.contains("lifetime_secs: 60"));
+        assert!(!debug.contains("secret:"));
+        assert!(!debug.contains("unique-session-secret"));
     }
 }
