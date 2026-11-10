@@ -476,9 +476,9 @@ mod debug_redaction_tests {
         let common = ClientSessionCommon::new(
             vec![1, 2, 3],
             b"unique-session-secret",
-            CertificateChain(Vec::new()),
             UnixTime::since_unix_epoch(Duration::from_secs(1)),
             60,
+            CertificateChain(Vec::new()),
         );
 
         // Both Tls12ClientSessionValue and Tls13ClientSessionValue derive Debug
